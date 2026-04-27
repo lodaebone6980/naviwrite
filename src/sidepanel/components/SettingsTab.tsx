@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function SettingsTab() {
   const [apiKey, setApiKey] = useState("");
   const [aiProvider, setAiProvider] = useState<"claude" | "gpt">("claude");
+  const [serverUrl, setServerUrl] = useState("https://web-production-184ff.up.railway.app");
   const [obsidianEnabled, setObsidianEnabled] = useState(false);
   const [obsidianUrl, setObsidianUrl] = useState("http://localhost:27123");
   const [blogId, setBlogId] = useState("");
@@ -12,24 +13,116 @@ export default function SettingsTab() {
     weeklyReport: false,
   });
   const [saved, setSaved] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
+
+  // 마운트 시 저장된 설정 불러오기
+  useEffect(() => {
+    if (typeof chrome !== "undefined" && chrome.storage?.sync) {
+      chrome.storage.sync.get("settings", (data) => {
+        const s = data?.settings;
+        if (s) {
+          if (s.apiKey) setApiKey(s.apiKey);
+          if (s.aiProvider) setAiProvider(s.aiProvider);
+          if (s.serverUrl) setServerUrl(s.serverUrl);
+          if (s.obsidianEnabled !== undefined) setObsidianEnabled(s.obsidianEnabled);
+          if (s.obsidianApiUrl) setObsidianUrl(s.obsidianApiUrl);
+          if (s.naverBlogId) setBlogId(s.naverBlogId);
+          if (s.notifications) setNotifications(s.notifications);
+        }
+      });
+    }
+  }, []);
 
   const handleSave = () => {
-    // TODO: chrome.storage.sync에 저장
     const settings = {
       apiKey,
       aiProvider,
+      serverUrl,
       obsidianEnabled,
       obsidianApiUrl: obsidianUrl,
       naverBlogId: blogId,
       notifications,
     };
-    console.log("Settings saved:", settings);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+
+    if (typeof chrome !== "undefined" && chrome.storage?.sync) {
+      chrome.storage.sync.set({ settings }, () => {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      });
+    } else {
+      console.log("Settings saved:", settings);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setConnectionStatus("testing");
+    try {
+      const res = await fetch(`${serverUrl}/api/stats`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (res.ok) {
+        setConnectionStatus("ok");
+      } else {
+        setConnectionStatus("fail");
+      }
+    } catch {
+      setConnectionStatus("fail");
+    }
+    setTimeout(() => setConnectionStatus("idle"), 3000);
   };
 
   return (
     <div className="space-y-5">
+      {/* 서버 연동 */}
+      <section className="bg-white rounded-xl border border-gray-100 p-4">
+        <h3 className="text-[12px] font-bold text-primary mb-3">🌐 서버 연동</h3>
+
+        <div className="mb-3">
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1">서버 URL</label>
+          <input
+            type="url"
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+            placeholder="https://web-production-184ff.up.railway.app"
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white
+              focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+          />
+          <p className="text-[9px] text-gray-400 mt-1">
+            Auto-Blog 백엔드 서버 주소입니다
+          </p>
+        </div>
+
+        <button
+          onClick={handleTestConnection}
+          disabled={connectionStatus === "testing"}
+          className={`w-full py-2 rounded-lg text-[11px] font-bold transition ${
+            connectionStatus === "ok"
+              ? "bg-success text-white"
+              : connectionStatus === "fail"
+              ? "bg-danger text-white"
+              : connectionStatus === "testing"
+              ? "bg-gray-300 text-gray-500 cursor-wait"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          {connectionStatus === "testing" ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="inline-block w-3 h-3 border-2 border-gray-400/30 border-t-gray-500 rounded-full animate-spin" />
+              연결 테스트 중...
+            </span>
+          ) : connectionStatus === "ok" ? (
+            "연결 성공!"
+          ) : connectionStatus === "fail" ? (
+            "연결 실패 - URL을 확인해주세요"
+          ) : (
+            "🕗 서버 연결 테스트"
+          )}
+        </button>
+      </section>
+
       {/* AI 설정 */}
       <section className="bg-white rounded-xl border border-gray-100 p-4">
         <h3 className="text-[12px] font-bold text-primary mb-3">🤖 AI 엔진 설정</h3>
@@ -83,7 +176,7 @@ export default function SettingsTab() {
               focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
           />
           <p className="text-[9px] text-gray-400 mt-1">
-            순위 추적 및 회수 수집에 사용됩니다
+            순위 추적 및 조회수 수집에 사용됩니다
           </p>
         </div>
       </section>
