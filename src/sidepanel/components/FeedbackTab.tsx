@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { FeedbackType } from "../../lib/types";
+import { getStatsFromServer, applyFeedbackOnServer, getServerUrl } from "../../lib/api";
 
 interface FeedbackCard {
   id: string;
@@ -21,51 +22,77 @@ const TYPE_CONFIG: Record<FeedbackType, { label: string; color: string; bg: stri
   new_post: { label: "새 글 제안", color: "text-danger", bg: "bg-red-50" },
 };
 
-const DEMO_FEEDBACKS: FeedbackCard[] = [
-  {
-    id: "1",
-    postTitle: "sbti 테스트",
-    type: "kw_density",
-    typeLabel: "KW 밀도",
-    triggerDay: 7,
-    description: '키워드 밀도가 2.1%로 경쟁글 평균(3.5%)보다 낮습니다. 소제목 2개에 키워드를 추가하세요.',
-    before: "테스트 결과 알아보기",
-    after: "sbti 테스트 결과 유형 알아보기",
-    applied: false,
-  },
-  {
-    id: "2",
-    postTitle: "sbti 테스트",
-    type: "image",
-    typeLabel: "이미지 보강",
-    triggerDay: 7,
-    description: "현재 5장 → 경쟁글 평균 7.5장. 섹션 3, 4에 스크린샷 이미지를 추가하메 SEO 점수 +8 예상.",
-    applied: false,
-  },
-  {
-    id: "3",
-    postTitle: "고유가 피해지원금",
-    type: "geo_aeo",
-    typeLabel: "GEO 보강",
-    triggerDay: 3,
-    description: "FAQ 섹션이 없습니다. 상위 경쟁글 3개 모두 FAQ를 포함 중. AI 검색 인용 확쮔 증가.",
-    after: "Q: 고유가 피해지원금 신청 기간은?\nA: 2026년 5월 1일~6월 30일",
-    applied: false,
-  },
-  {
-    id: "4",
-    postTitle: "네이버 블로그 최적화",
-    type: "structure",
-    typeLabel: "구조 개선",
-    triggerDay: 30,
-    description: "체류시간이 경쟁글 대비 40% 낮습니다. 하위목록과 비디오를 추가하여 D.I.A 점수를 개선하세요.",
-    applied: true,
-  },
-];
-
 export default function FeedbackTab() {
-  const [feedbacks, setFeedbacks] = useState(DEMO_FEEDBACKS);
+  const [feedbacks, setFeedbacks] = useState<FeedbackCard[]>([]);
   const [filter, setFilter] = useState<"all" | "pending" | "applied">("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadFeedbacks();
+  }, []);
+
+  const loadFeedbacks = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const serverUrl = await getServerUrl();
+
+      // 포스트 목록 가져오기
+      const postsRes = await fetch(`${serverUrl}/api/posts`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!postsRes.ok) {
+        throw new Error("포스트 목록을 불러올 수 없습니다");
+      }
+
+      const postsData = await postsRes.json();
+      const posts = Array.isArray(postsData) ? postsData : postsData?.data || [];
+
+      // 각 포스트의 피드백 수집
+      const allFeedbacks: FeedbackCard[] = [];
+
+      for (const post of posts) {
+        try {
+          const postRes = await fetch(`${serverUrl}/api/posts/${post.id}`, {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+          });
+
+          if (postRes.ok) {
+            const postDetail = await postRes.json();
+            const postFeedbacks = postDetail?.feedbacks || postDetail?.data?.feedbacks || [];
+
+            for (const fb of postFeedbacks) {
+              const fbType = (fb.type || "structure") as FeedbackType;
+              allFeedbacks.push({
+                id: fb.id || String(allFeedbacks.length + 1),
+                postTitle: post.title || post.keyword || "제목 없음",
+                type: fbType,
+                typeLabel: TYPE_CONFIG[fbType]?.label || fb.type,
+                triggerDay: fb.triggerDay || fb.trigger_day || 0,
+                description: fb.description || fb.title || "",
+                before: fb.before,
+                after: fb.after,
+                applied: fb.applied || false,
+              });
+            }
+          }
+        } catch {
+          // 개별 포스트 로드 실패는 무시
+        }
+      }
+
+      setFeedbacks(allFeedbacks);
+    } catch (err) {
+      console.warn("피드백 로드 실패:", err);
+      setError("서버에서 피드백 데이터를 불러오지 못했습니다");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filtered = feedbacks.filter((f) => {
     if (filter === "pending") return !f.applied;
@@ -73,23 +100,50 @@ export default function FeedbackTab() {
     return true;
   });
 
-  const handleApply = (id: string) => {
-    setFeedbacks((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, applied: true } : f))
-    );
+  const handleApply = async (id: string) => {
+    try {
+      await applyFeedbackOnServer(id);
+      setFeedbacks((prev) =>
+        prev.map((f) => (f.id === id ? { ...f, applied: true } : f))
+      );
+    } catch (err) {
+      console.warn("피드백 적용 실패:", err);
+      // 로컬에서라도 적용 처리
+      setFeedbacks((prev) =>
+        prev.map((f) => (f.id === id ? { ...f, applied: true } : f))
+      );
+    }
   };
 
   const pendingCount = feedbacks.filter((f) => !f.applied).length;
 
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12">
+        <span className="inline-block w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin mb-3" />
+        <p className="text-[11px] text-gray-400">피드백 불러오는 중...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      {/* 에러 메시지 */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <p className="text-[11px] text-danger font-medium">{error}</p>
+        </div>
+      )}
+
       {/* 요약 */}
       <div className="bg-gradient-to-r from-primary to-accent rounded-xl p-4 text-white">
         <h3 className="text-sm font-bold mb-1">AI 개선 제안</h3>
         <p className="text-[11px] opacity-80">
           {pendingCount > 0
             ? `${pendingCount}건의 개선 제안이 대기 중입니다`
-            : "모든 개선 제안을 적용했습니다!"}
+            : feedbacks.length > 0
+            ? "모든 개선 제안을 적용했습니다!"
+            : "아직 피드백이 없습니다"}
         </p>
       </div>
 
@@ -111,7 +165,7 @@ export default function FeedbackTab() {
       {/* 피드백 카드 */}
       <div className="space-y-3">
         {filtered.map((fb) => {
-          const config = TYPE_CONFIG[fb.type];
+          const config = TYPE_CONFIG[fb.type] || TYPE_CONFIG.structure;
           return (
             <div
               key={fb.id}
@@ -129,7 +183,7 @@ export default function FeedbackTab() {
                 </span>
               </div>
 
-              {/* 설��� */}
+              {/* 설명 */}
               <p className="text-[12px] text-gray-600 leading-relaxed mb-2">{fb.description}</p>
 
               {/* Before/After */}
