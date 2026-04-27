@@ -1,5 +1,7 @@
 // ═══════ NaviWrite Background Service Worker ═══════
 
+const DEFAULT_SERVER_URL = "https://web-production-184ff.up.railway.app";
+
 // 확장프로그램 아이콘 클릭 → 사이드패널 열기
 chrome.action.onClicked.addListener((tab) => {
   if (tab.id) {
@@ -15,6 +17,7 @@ chrome.runtime.onInstalled.addListener((details) => {
       settings: {
         apiKey: "",
         aiProvider: "claude",
+        serverUrl: DEFAULT_SERVER_URL,
         obsidianEnabled: false,
         obsidianApiUrl: "http://localhost:27123",
         naverBlogId: "",
@@ -122,20 +125,57 @@ async function handleSaveTrackedPost(post: unknown, sendResponse: (response: unk
   }
 }
 
-// ─── 알람 (자동 주기 분석 트리거) ───
-// Chrome Extension에서는 chrome.alarms로 주기적 작업 가능 (최소 1분 간격)
-chrome.alarms.onAlarm.addListener((alarm) => {
+// ─── 서버 URL 가져오기 헬퍼 ───
+async function getServerUrlFromStorage(): Promise<string> {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get("settings", (data) => {
+      resolve(data?.settings?.serverUrl || DEFAULT_SERVER_URL);
+    });
+  });
+}
+
+// ─── 알람 (자동 주기 분선 트리거) ───
+chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "check-rankings") {
     console.log("[NaviWrite] 순위 체크 알람 트리거");
-    // TODO: 서버에 순위 체크 요청 → 결과를 storage에 저장 → 알림
+    try {
+      const serverUrl = await getServerUrlFromStorage();
+      const res = await fetch(`${serverUrl}/api/track/check-rankings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (res.ok) {
+        const result = await res.json();
+        console.log("[NaviWrite] 순위 체크 완료:", result);
+        if (result?.alerts && result.alerts.length > 0) {
+          chrome.storage.sync.get("settings", (data) => {
+            const settings = data?.settings;
+            if (settings?.notifications?.rankingChange) {
+              for (const alert of result.alerts) {
+                chrome.notifications.create({
+                  type: "basic",
+                  iconUrl: "icons/icon128.png",
+                  title: "NaviWrite 순위 변동",
+                  message: alert.message || "키워드 순위가 변동되었습니다",
+                });
+              }
+            }
+          });
+        }
+      } else {
+        console.warn("[NaviWrite] 순위 체크 서버 오류:", res.status);
+      }
+    } catch (err) {
+      console.warn("[NaviWrite] 순위 체크 실패:", (err as Error).message);
+    }
   }
 });
 
 // 설치 시 알람 등록
 chrome.runtime.onInstalled.addListener(() => {
-  // 매 6시간마다 순위 체크 (Service Worker 젖한 고려)
+  // 매 6시간마다 순위 체크 (Service Worker 제한 고려)
   chrome.alarms.create("check-rankings", {
-    periodInMinutes: 360, // 6시간
+    periodInMinutes: 360, // <시간
   });
 });
 
