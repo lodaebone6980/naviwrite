@@ -1,5 +1,13 @@
 // ═══════ AI API 연동 (서버 경유) ═══════
-import type { Category, WriteRequest, WriteResult, ScoreResult, ContentJobResponse, SourceAnalysisResponse } from "./types";
+import type {
+  Category,
+  WriteRequest,
+  WriteResult,
+  ScoreResult,
+  ContentJobResponse,
+  SourceAnalysisResponse,
+  CollectionSourceLink,
+} from "./types";
 import { getPattern } from "./patterns";
 import { scoreContent } from "./scoring";
 
@@ -88,6 +96,57 @@ export async function analyzeSourceOnServer(payload: {
   platform: string;
 }): Promise<SourceAnalysisResponse> {
   return fetchFromServer("/api/content-jobs/source/analyze", payload) as Promise<SourceAnalysisResponse>;
+}
+
+/** 확장프로그램이 처리할 수집 링크 큐 조회 */
+export async function getCollectionLinksOnServer(status = "대기중", limit = 20): Promise<CollectionSourceLink[]> {
+  const qs = new URLSearchParams({ status, limit: String(limit) });
+  return getFromServer(`/api/collections/links?${qs.toString()}`) as Promise<CollectionSourceLink[]>;
+}
+
+/** 수집 링크를 현재 확장프로그램 작업으로 점유 */
+export async function claimCollectionLinkOnServer(id: number | string): Promise<CollectionSourceLink> {
+  const serverUrl = await getServerUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${serverUrl}/api/collections/links/${id}/claim`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    throw new Error(`수집 큐 연결 실패: ${err instanceof Error ? err.message : "network error"}`);
+  }
+  if (!res.ok) throw new Error(`수집 링크 점유 실패 (${res.status}): ${await res.text()}`);
+  return res.json();
+}
+
+/** 확장프로그램에서 추출한 원문 분석 결과 저장 */
+export async function saveCollectionAnalysisOnServer(
+  id: number | string,
+  payload: unknown
+): Promise<unknown> {
+  return fetchFromServer(`/api/collections/links/${id}/analysis`, payload);
+}
+
+/** 수집 링크 실패 상태 저장 */
+export async function markCollectionLinkStatusOnServer(
+  id: number | string,
+  status: string,
+  errorMessage?: string
+): Promise<CollectionSourceLink> {
+  const serverUrl = await getServerUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${serverUrl}/api/collections/links/${id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, errorMessage }),
+    });
+  } catch (err) {
+    throw new Error(`수집 상태 저장 실패: ${err instanceof Error ? err.message : "network error"}`);
+  }
+  if (!res.ok) throw new Error(`수집 상태 저장 실패 (${res.status}): ${await res.text()}`);
+  return res.json();
 }
 
 /** 글/QR 작업을 서버에서 업데이트 */

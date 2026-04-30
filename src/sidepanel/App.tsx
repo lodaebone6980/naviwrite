@@ -1,14 +1,16 @@
 import { useState } from "react";
 import WriteTab from "./components/WriteTab";
+import CollectTab from "./components/CollectTab";
 import LearnTab from "./components/LearnTab";
 import TrackTab from "./components/TrackTab";
 import FeedbackTab from "./components/FeedbackTab";
 import SettingsTab from "./components/SettingsTab";
 
-type Tab = "write" | "learn" | "track" | "feedback" | "settings";
+type Tab = "write" | "collect" | "learn" | "track" | "feedback" | "settings";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "write", label: "작성", icon: "✍️" },
+  { id: "collect", label: "수집", icon: "🔎" },
   { id: "learn", label: "학습", icon: "📚" },
   { id: "track", label: "추적", icon: "📊" },
   { id: "feedback", label: "피드백", icon: "💡" },
@@ -51,6 +53,7 @@ export default function App() {
       <main className="flex-1 overflow-y-auto p-4">
         <div className="animate-fadeIn">
           {activeTab === "write" && <WriteTab />}
+          {activeTab === "collect" && <CollectTab />}
           {activeTab === "learn" && <LearnTab />}
           {activeTab === "track" && <TrackTab />}
           {activeTab === "feedback" && <FeedbackTab />}

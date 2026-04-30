@@ -1,6 +1,6 @@
 // ═══════ NaviWrite Core Types ═══════
 
-export type Platform = "blog" | "cafe";
+export type Platform = "blog" | "cafe" | "premium" | "brunch" | "web";
 
 export type Category =
   | "맛집"
@@ -236,6 +236,19 @@ export interface SourceAnalysis {
   fetchStatus: "fetched" | "fetch_failed" | "text_provided" | string;
   errorMessage?: string | null;
   createdAt?: string;
+}
+
+export interface CollectionSourceLink {
+  id: number;
+  batch_id: number;
+  batch_name?: string;
+  url: string;
+  platform_guess?: Platform | string | null;
+  status: "대기중" | "수집중" | "수집완료" | "오류" | string;
+  source_analysis_id?: number | null;
+  error_message?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface SourceAnalysisResponse {

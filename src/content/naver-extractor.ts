@@ -17,7 +17,7 @@ interface ExtractedData {
   links: string[];
   hasVideo: boolean;
   hasFAQ: boolean;
-  platform: "blog" | "cafe";
+  platform: "blog" | "cafe" | "premium" | "brunch" | "web";
 }
 
 // 메시지 수신
@@ -37,7 +37,9 @@ function extractContent(): ExtractedData {
   const url = window.location.href;
   const isBlog = url.includes("blog.naver.com");
   const isCafe = url.includes("cafe.naver.com");
-  const platform = isBlog ? "blog" : "cafe";
+  const isPremium = url.includes("contents.premium.naver.com");
+  const isBrunch = url.includes("brunch.co.kr");
+  const platform = isBlog ? "blog" : isCafe ? "cafe" : isPremium ? "premium" : isBrunch ? "brunch" : "web";
 
   // 네이버 블로그/카페는 iframe 안에 콘텐츠가 있음
   let contentDoc: Document = document;
@@ -58,6 +60,12 @@ function extractContent(): ExtractedData {
     contentDoc.querySelector(".post-view") ?? // 모바일
     contentDoc.querySelector("#body") ?? // 카페
     contentDoc.querySelector(".article_viewer") ?? // 카페 신버전
+    contentDoc.querySelector("article") ??
+    contentDoc.querySelector("main") ??
+    contentDoc.querySelector(".article_body") ??
+    contentDoc.querySelector(".wrap_body") ??
+    contentDoc.querySelector(".post_article") ??
+    contentDoc.querySelector(".content") ??
     contentDoc.body;
 
   // 제목 추출
@@ -67,7 +75,9 @@ function extractContent(): ExtractedData {
     contentDoc.querySelector(".tit_h3")?.textContent?.trim() ??
     contentDoc.querySelector("h3.title_text")?.textContent?.trim() ??
     contentDoc.querySelector(".article_header .title")?.textContent?.trim() ??
-    document.title.replace(/ : 네이버 블로그| : 네이버 카페/g, "").trim();
+    contentDoc.querySelector("h1")?.textContent?.trim() ??
+    contentDoc.querySelector("meta[property='og:title']")?.getAttribute("content")?.trim() ??
+    document.title.replace(/ : 네이버 블로그| : 네이버 카페| - 브런치/g, "").trim();
 
   // 본문 HTML
   const body = postArea?.innerHTML ?? "";
