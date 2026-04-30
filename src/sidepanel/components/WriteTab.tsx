@@ -1,7 +1,7 @@
-import { useState } from "react";
-import type { Category, Platform, ContentJob } from "../../lib/types";
+import { useEffect, useMemo, useState } from "react";
+import type { Category, Platform, ContentJob, PublishingAccount, SourceAnalysis } from "../../lib/types";
 import { getPattern, getPlatformRules } from "../../lib/patterns";
-import { generateContent, analyzeContentOnServer, createContentJobOnServer } from "../../lib/api";
+import { generateContent, analyzeContentOnServer, createContentJobOnServer, analyzeSourceOnServer } from "../../lib/api";
 
 const CATEGORIES: Category[] = ["맛집", "여행", "IT/테크", "건강/의료", "재테크/금융", "육아/육품", "부동산", "정부정책"];
 const PLATFORMS: { id: Platform; label: string }[] = [
@@ -21,6 +21,10 @@ export default function WriteTab() {
   const [toneOption, setToneOption] = useState("");
   const [category, setCategory] = useState<Category>("IT/테크");
   const [platform, setPlatform] = useState<Platform>("blog");
+  const [sourceAnalysis, setSourceAnalysis] = useState<SourceAnalysis | null>(null);
+  const [isAnalyzingSource, setIsAnalyzingSource] = useState(false);
+  const [naverAccounts, setNaverAccounts] = useState<PublishingAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRegisteringJob, setIsRegisteringJob] = useState(false);
   const [contentJob, setContentJob] = useState<ContentJob | null>(null);
@@ -36,6 +40,28 @@ export default function WriteTab() {
 
   const pattern = getPattern(category);
   const rules = getPlatformRules(platform);
+  const selectedAccount = useMemo(
+    () => naverAccounts.find((account) => account.id === selectedAccountId) || null,
+    [naverAccounts, selectedAccountId]
+  );
+
+  useEffect(() => {
+    if (typeof chrome !== "undefined" && chrome.storage?.sync) {
+      chrome.storage.sync.get("settings", (data) => {
+        const settings = data?.settings || {};
+        if (Array.isArray(settings.naverAccounts)) {
+          setNaverAccounts(settings.naverAccounts);
+        }
+        if (settings.selectedAccountId) {
+          setSelectedAccountId(settings.selectedAccountId);
+        }
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    setSourceAnalysis(null);
+  }, [inputMode, sourceUrl, sourceText, keyword, category]);
 
   const buildQrBlock = (targetUrl: string) => `
 <blockquote data-naviwrite="qr-cta">
@@ -52,6 +78,50 @@ export default function WriteTab() {
       return `${content.slice(0, headingMatches[1].index)}\n${qrBlock}\n${content.slice(headingMatches[1].index)}`;
     }
     return `${content}\n\n${qrBlock}`;
+  };
+
+  const handleAnalyzeSource = async () => {
+    setError(null);
+    setQrStatusMessage(null);
+
+    if (!keyword.trim()) {
+      setError("URL 학습 전에 타겟 키워드를 입력해 주세요");
+      return;
+    }
+    if (inputMode === "url" && !sourceUrl.trim()) {
+      setError("학습할 원본 URL을 입력해 주세요");
+      return;
+    }
+    if (inputMode === "text" && !sourceText.trim()) {
+      setError("학습할 원본 텍스트를 붙여넣어 주세요");
+      return;
+    }
+
+    setIsAnalyzingSource(true);
+    try {
+      const response = await analyzeSourceOnServer({
+        sourceUrl: inputMode === "url" ? sourceUrl.trim() : undefined,
+        sourceText: inputMode === "text" ? sourceText.trim() : undefined,
+        keyword: keyword.trim(),
+        category,
+        platform,
+      });
+
+      setSourceAnalysis(response.analysis);
+      if (response.analysis.platformGuess === "blog" || response.analysis.platformGuess === "cafe") {
+        setPlatform(response.analysis.platformGuess);
+      }
+
+      if (response.analysis.fetchStatus === "fetch_failed") {
+        setQrStatusMessage("URL 접근은 제한됐지만 작업 흐름은 저장했습니다. 필요하면 텍스트 붙여넣기로 원문을 보강하세요.");
+      } else {
+        setQrStatusMessage("원문 학습과 데이터 수집이 완료되었습니다. 이제 발행 계정을 확인하고 글 생성을 진행하세요.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "원문 학습에 실패했습니다");
+    } finally {
+      setIsAnalyzingSource(false);
+    }
   };
 
   const createOrRegisterContentJob = async (payload?: {
@@ -80,6 +150,11 @@ export default function WriteTab() {
       charCount: payload?.charCount,
       kwCount: payload?.kwCount,
       imageCount: pattern.imageCount[0],
+      sourceAnalysisId: sourceAnalysis?.id,
+      publishAccountId: selectedAccount?.id,
+      publishAccountLabel: selectedAccount?.label,
+      learningStatus: sourceAnalysis ? "학습 완료" : "학습 필요",
+      loginStatus: selectedAccount?.status === "checked" ? "계정 확인 완료" : "계정 확인 필요",
       generationStatus: payload?.title ? "본문 생성 완료" : "대기중",
       qrStatus: targetUrl ? "QR 생성 필요" : "대기중",
       editorStatus: "검수 필요",
@@ -99,6 +174,9 @@ export default function WriteTab() {
     setIsRegisteringJob(true);
     setError(null);
     try {
+      if (!sourceAnalysis) {
+        throw new Error("먼저 URL 학습/데이터 수집을 완료해 주세요");
+      }
       await createOrRegisterContentJob();
     } catch (err) {
       setError(err instanceof Error ? err.message : "작업 등록에 실패했습니다");
@@ -109,6 +187,14 @@ export default function WriteTab() {
 
   const handleGenerate = async () => {
     if (!keyword.trim()) return;
+    if (!sourceAnalysis) {
+      setError("먼저 URL 학습/데이터 수집을 완료해 주세요");
+      return;
+    }
+    if (!selectedAccount || selectedAccount.status !== "checked") {
+      setError("설정에서 발행할 네이버 블로그/카페 계정을 추가하고 로그인 체크를 완료해 주세요");
+      return;
+    }
     setIsGenerating(true);
     setError(null);
 
@@ -137,7 +223,7 @@ export default function WriteTab() {
       if (serverUrl) {
         // 서버 경유 AI 분석 시도
         try {
-          const sourceContent = inputMode === "url" ? sourceUrl : sourceText;
+          const sourceContent = sourceAnalysis?.plainText || (inputMode === "url" ? sourceUrl : sourceText);
           const analyzed = (await analyzeContentOnServer(
             sourceContent,
             keyword,
@@ -171,7 +257,7 @@ export default function WriteTab() {
         const writeResult = await generateContent(
           {
             sourceUrl: inputMode === "url" ? sourceUrl : undefined,
-            sourceText: inputMode === "text" ? sourceText : undefined,
+            sourceText: sourceAnalysis?.plainText || (inputMode === "text" ? sourceText : undefined),
             targetKeyword: keyword,
             category,
             platform,
@@ -233,6 +319,12 @@ export default function WriteTab() {
       if (!targetUrl) {
         throw new Error("QR 연결 링크 또는 CTA 링크를 입력해 주세요");
       }
+      if (!sourceAnalysis) {
+        throw new Error("QR 작업 전에 URL 학습/데이터 수집을 완료해 주세요");
+      }
+      if (!selectedAccount || selectedAccount.status !== "checked") {
+        throw new Error("설정에서 발행 계정 로그인 체크를 먼저 완료해 주세요");
+      }
 
       const job = contentJob || (await createOrRegisterContentJob(result || undefined));
       const qrName =
@@ -291,11 +383,12 @@ export default function WriteTab() {
             Railway 연결
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-1.5 text-center">
+        <div className="grid grid-cols-4 gap-1.5 text-center">
           {[
-            ["1", "입력"],
-            ["2", "생성"],
-            ["3", "QR/Sheets"],
+            ["1", "URL 학습"],
+            ["2", "계정 확인"],
+            ["3", "글 생성"],
+            ["4", "QR/Sheets"],
           ].map(([step, label]) => (
             <div key={step} className="rounded-lg border border-gray-100 bg-gray-50 px-2 py-2">
               <div className="mx-auto mb-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white">
@@ -382,6 +475,66 @@ export default function WriteTab() {
           className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white
             focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
         />
+      </div>
+
+      <div className="rounded-xl border border-primary/10 bg-white p-3 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-extrabold text-primary">1단계 URL 학습/데이터 수집</p>
+            <p className="text-[10px] text-gray-400">글자수, 키워드 반복수, 이미지 수, 소제목을 먼저 수집합니다</p>
+          </div>
+          <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+            sourceAnalysis ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+          }`}>
+            {sourceAnalysis ? "학습 완료" : "학습 필요"}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={handleAnalyzeSource}
+          disabled={isAnalyzingSource || !keyword.trim() || (inputMode === "url" ? !sourceUrl.trim() : !sourceText.trim())}
+          className="w-full py-2.5 rounded-lg bg-primary text-white text-xs font-bold hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isAnalyzingSource ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              원문 수집/학습 중...
+            </span>
+          ) : (
+            "URL 학습/데이터 수집하기"
+          )}
+        </button>
+
+        {sourceAnalysis && (
+          <div className="mt-3 rounded-lg border border-light bg-light/40 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="truncate text-[11px] font-bold text-gray-700">
+                {sourceAnalysis.title || "수집된 원문"}
+              </p>
+              <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[9px] font-bold text-primary">
+                {sourceAnalysis.platformGuess || platform}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5 text-center">
+              {[
+                ["글자", sourceAnalysis.charCount.toLocaleString()],
+                ["KW", `${sourceAnalysis.kwCount}회`],
+                ["이미지", `${sourceAnalysis.imageCount}개`],
+                ["소제목", `${sourceAnalysis.subheadings.length}개`],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg bg-white px-1.5 py-2">
+                  <p className="text-[9px] text-gray-400">{label}</p>
+                  <p className="text-[11px] font-extrabold text-primary">{value}</p>
+                </div>
+              ))}
+            </div>
+            {sourceAnalysis.fetchStatus === "fetch_failed" && (
+              <p className="mt-2 text-[10px] leading-relaxed text-warning">
+                URL 접근 제한: {sourceAnalysis.errorMessage || "네이버 로그인/차단 페이지일 수 있습니다."}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* CTA / QR 링크 */}
@@ -487,6 +640,60 @@ export default function WriteTab() {
         </div>
       </div>
 
+      <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-extrabold text-primary">2단계 발행 계정 선택</p>
+            <p className="text-[10px] text-gray-400">설정에서 미리 로그인 체크한 계정만 사용합니다</p>
+          </div>
+          <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+            selectedAccount?.status === "checked" ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+          }`}>
+            {selectedAccount?.status === "checked" ? "계정 확인 완료" : "계정 확인 필요"}
+          </span>
+        </div>
+
+        {naverAccounts.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-3 text-[10px] text-gray-400 leading-relaxed">
+            설정 탭에서 발행할 네이버 블로그/카페 계정을 추가하고 로그인 체크를 완료해 주세요.
+          </div>
+        ) : (
+          <select
+            value={selectedAccountId}
+            onChange={(e) => {
+              const nextId = e.target.value;
+              setSelectedAccountId(nextId);
+              if (typeof chrome !== "undefined" && chrome.storage?.sync) {
+                chrome.storage.sync.get("settings", (data) => {
+                  chrome.storage.sync.set({
+                    settings: {
+                      ...(data?.settings || {}),
+                      selectedAccountId: nextId,
+                    },
+                  });
+                });
+              }
+            }}
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white
+              focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+          >
+            <option value="">발행 계정 선택</option>
+            {naverAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.status === "checked" ? "✓" : "!"} {account.label} · {account.platform === "blog" ? "블로그" : "카페"}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {selectedAccount && (
+          <p className="mt-2 text-[10px] text-gray-500 leading-relaxed">
+            선택 계정: <strong>{selectedAccount.label}</strong>
+            {selectedAccount.targetUrl ? ` · ${selectedAccount.targetUrl}` : ""}
+          </p>
+        )}
+      </div>
+
       {/* 학습된 패턴 정보 */}
       <div className="bg-light/50 border border-light rounded-lg p-3">
         <p className="text-[11px] font-bold text-primary mb-1.5">
@@ -509,7 +716,7 @@ export default function WriteTab() {
       {/* 생성 버튼 */}
       <button
         onClick={handleGenerate}
-        disabled={!keyword.trim() || isGenerating}
+        disabled={!keyword.trim() || !sourceAnalysis || selectedAccount?.status !== "checked" || isGenerating}
         className={`w-full py-3 rounded-xl text-sm font-bold text-white transition
           ${isGenerating ? "bg-gray-400 cursor-wait" : "bg-accent hover:bg-primary pulse-glow"}
           disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -520,7 +727,7 @@ export default function WriteTab() {
             AI 최적화 글 생성 중...
           </span>
         ) : (
-          "🚀 최적화 글 생성하기"
+          "🚀 학습 데이터로 최적화 글 생성하기"
         )}
       </button>
 
@@ -532,14 +739,14 @@ export default function WriteTab() {
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={handleRegisterJobOnly}
-          disabled={!keyword.trim() || isRegisteringJob}
+          disabled={!keyword.trim() || !sourceAnalysis || isRegisteringJob}
           className="py-2.5 bg-primary text-white border border-primary rounded-lg text-xs font-bold hover:bg-accent transition disabled:opacity-50"
         >
           {isRegisteringJob ? "등록 중..." : "DB/Sheets 작업 등록"}
         </button>
         <button
           onClick={handleOpenNaverQr}
-          disabled={!keyword.trim() || !(qrTargetUrl || ctaUrl)}
+          disabled={!keyword.trim() || !sourceAnalysis || selectedAccount?.status !== "checked" || !(qrTargetUrl || ctaUrl)}
           className="py-2.5 bg-success text-white rounded-lg text-xs font-bold hover:bg-primary transition disabled:opacity-50"
         >
           네이버 QR 만들기

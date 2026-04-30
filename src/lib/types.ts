@@ -199,6 +199,11 @@ export interface ContentJob {
   sheet_sync_status: string;
   notion_url?: string | null;
   error_message?: string | null;
+  source_analysis_id?: number | null;
+  publish_account_id?: string | null;
+  publish_account_label?: string | null;
+  learning_status?: string | null;
+  login_status?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -211,6 +216,34 @@ export interface ContentJobResponse {
     status: string;
     message?: string;
   } | null;
+}
+
+export interface SourceAnalysis {
+  id: number;
+  sourceUrl?: string | null;
+  keyword?: string | null;
+  category?: string | null;
+  platform?: string | null;
+  title?: string | null;
+  plainText: string;
+  charCount: number;
+  kwCount: number;
+  imageCount: number;
+  subheadings: string[];
+  links: string[];
+  hasVideo: boolean;
+  platformGuess?: string | null;
+  fetchStatus: "fetched" | "fetch_failed" | "text_provided" | string;
+  errorMessage?: string | null;
+  createdAt?: string;
+}
+
+export interface SourceAnalysisResponse {
+  analysis: SourceAnalysis;
+  recommendations?: {
+    nextStep?: string;
+    qrPosition?: string;
+  };
 }
 
 export interface RankingRecord {
@@ -248,14 +281,27 @@ export interface FeedbackItem {
 export interface UserSettings {
   apiKey: string;
   aiProvider: "claude" | "gpt";
+  serverUrl?: string;
   obsidianEnabled: boolean;
   obsidianApiUrl?: string;
   naverBlogId?: string;
+  naverAccounts?: PublishingAccount[];
+  selectedAccountId?: string;
   notifications: {
     rankingChange: boolean;
     feedbackReady: boolean;
     weeklyReport: boolean;
   };
+}
+
+export interface PublishingAccount {
+  id: string;
+  label: string;
+  platform: Platform;
+  naverId?: string;
+  targetUrl?: string;
+  status: "unchecked" | "checking" | "checked";
+  lastCheckedAt?: string;
 }
 
 // ─── Messages (Chrome Extension) ───
@@ -268,7 +314,8 @@ export type MessageType =
   | "GET_SETTINGS"
   | "SAVE_SETTINGS"
   | "OPEN_NAVER_QR"
-  | "UPDATE_CONTENT_JOB_QR";
+  | "UPDATE_CONTENT_JOB_QR"
+  | "OPEN_NAVER_LOGIN_CHECK";
 
 export interface ChromeMessage {
   type: MessageType;

@@ -23,7 +23,12 @@
     "https://cafe.naver.com/*",
     "https://m.blog.naver.com/*",
     "https://m.cafe.naver.com/*",
-    "https://qr.naver.com/*"
+    "https://qr.naver.com/*",
+    "https://www.naver.com/*",
+    "https://nid.naver.com/*",
+    "https://web-production-184ff.up.railway.app/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker.ts",

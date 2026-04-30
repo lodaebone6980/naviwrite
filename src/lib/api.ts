@@ -1,5 +1,5 @@
 // ═══════ AI API 연동 (서버 경유) ═══════
-import type { Category, WriteRequest, WriteResult, ScoreResult, ContentJobResponse } from "./types";
+import type { Category, WriteRequest, WriteResult, ScoreResult, ContentJobResponse, SourceAnalysisResponse } from "./types";
 import { getPattern } from "./patterns";
 import { scoreContent } from "./scoring";
 
@@ -25,11 +25,18 @@ export async function getServerUrl(): Promise<string> {
  */
 export async function fetchFromServer(path: string, body: unknown): Promise<unknown> {
   const serverUrl = await getServerUrl();
-  const res = await fetch(`${serverUrl}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${serverUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    throw new Error(
+      `서버 연결 실패: ${serverUrl}에 접근할 수 없습니다. 설정의 서버 URL과 확장프로그램 host 권한을 확인해 주세요. (${err instanceof Error ? err.message : "network error"})`
+    );
+  }
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Server error (${res.status}): ${err}`);
@@ -42,10 +49,17 @@ export async function fetchFromServer(path: string, body: unknown): Promise<unkn
  */
 async function getFromServer(path: string): Promise<unknown> {
   const serverUrl = await getServerUrl();
-  const res = await fetch(`${serverUrl}${path}`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${serverUrl}${path}`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    throw new Error(
+      `서버 연결 실패: ${serverUrl}에 접근할 수 없습니다. 설정의 서버 URL과 확장프로그램 host 권한을 확인해 주세요. (${err instanceof Error ? err.message : "network error"})`
+    );
+  }
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Server error (${res.status}): ${err}`);
@@ -63,6 +77,17 @@ export async function savePostToServer(post: unknown): Promise<unknown> {
 /** 글/QR 작업을 서버에 등록 */
 export async function createContentJobOnServer(job: unknown): Promise<ContentJobResponse> {
   return fetchFromServer("/api/content-jobs", job) as Promise<ContentJobResponse>;
+}
+
+/** URL/텍스트 원문을 먼저 학습하고 수집 결과를 저장 */
+export async function analyzeSourceOnServer(payload: {
+  sourceUrl?: string;
+  sourceText?: string;
+  keyword: string;
+  category: string;
+  platform: string;
+}): Promise<SourceAnalysisResponse> {
+  return fetchFromServer("/api/content-jobs/source/analyze", payload) as Promise<SourceAnalysisResponse>;
 }
 
 /** 글/QR 작업을 서버에서 업데이트 */
@@ -306,15 +331,22 @@ function buildUserPrompt(req: WriteRequest): string {
 // ─── Claude API 호출 (서버 경유) ───
 async function callClaude(_apiKey: string, system: string, user: string): Promise<string> {
   const serverUrl = await getServerUrl();
-  const res = await fetch(`${serverUrl}/api/ai/claude`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system,
-      messages: [{ role: "user", content: user }],
-      max_tokens: 4096,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${serverUrl}/api/ai/claude`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system,
+        messages: [{ role: "user", content: user }],
+        max_tokens: 4096,
+      }),
+    });
+  } catch (err) {
+    throw new Error(
+      `서버 연결 실패: Claude 프록시를 호출할 수 없습니다. (${err instanceof Error ? err.message : "network error"})`
+    );
+  }
 
   if (!res.ok) {
     const err = await res.text();
@@ -328,17 +360,24 @@ async function callClaude(_apiKey: string, system: string, user: string): Promis
 // ─── GPT API 호출 (서버 경유) ───
 async function callGPT(_apiKey: string, system: string, user: string): Promise<string> {
   const serverUrl = await getServerUrl();
-  const res = await fetch(`${serverUrl}/api/ai/gpt`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      max_tokens: 4096,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${serverUrl}/api/ai/gpt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        max_tokens: 4096,
+      }),
+    });
+  } catch (err) {
+    throw new Error(
+      `서버 연결 실패: GPT 프록시를 호출할 수 없습니다. (${err instanceof Error ? err.message : "network error"})`
+    );
+  }
 
   if (!res.ok) {
     const err = await res.text();

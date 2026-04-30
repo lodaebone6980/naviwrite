@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type { Platform, PublishingAccount } from "../../lib/types";
 
 export default function SettingsTab() {
   const [apiKey, setApiKey] = useState("");
@@ -7,6 +8,12 @@ export default function SettingsTab() {
   const [obsidianEnabled, setObsidianEnabled] = useState(false);
   const [obsidianUrl, setObsidianUrl] = useState("http://localhost:27123");
   const [blogId, setBlogId] = useState("");
+  const [naverAccounts, setNaverAccounts] = useState<PublishingAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [newAccountLabel, setNewAccountLabel] = useState("");
+  const [newAccountNaverId, setNewAccountNaverId] = useState("");
+  const [newAccountPlatform, setNewAccountPlatform] = useState<Platform>("blog");
+  const [newAccountTargetUrl, setNewAccountTargetUrl] = useState("");
   const [notifications, setNotifications] = useState({
     rankingChange: true,
     feedbackReady: true,
@@ -27,6 +34,8 @@ export default function SettingsTab() {
           if (s.obsidianEnabled !== undefined) setObsidianEnabled(s.obsidianEnabled);
           if (s.obsidianApiUrl) setObsidianUrl(s.obsidianApiUrl);
           if (s.naverBlogId) setBlogId(s.naverBlogId);
+          if (Array.isArray(s.naverAccounts)) setNaverAccounts(s.naverAccounts);
+          if (s.selectedAccountId) setSelectedAccountId(s.selectedAccountId);
           if (s.notifications) setNotifications(s.notifications);
         }
       });
@@ -41,6 +50,8 @@ export default function SettingsTab() {
       obsidianEnabled,
       obsidianApiUrl: obsidianUrl,
       naverBlogId: blogId,
+      naverAccounts,
+      selectedAccountId,
       notifications,
     };
 
@@ -72,6 +83,57 @@ export default function SettingsTab() {
       setConnectionStatus("fail");
     }
     setTimeout(() => setConnectionStatus("idle"), 3000);
+  };
+
+  const handleAddAccount = () => {
+    const label = newAccountLabel.trim() || newAccountNaverId.trim();
+    if (!label) return;
+
+    const account: PublishingAccount = {
+      id: `${newAccountPlatform}_${Date.now()}`,
+      label,
+      platform: newAccountPlatform,
+      naverId: newAccountNaverId.trim() || undefined,
+      targetUrl: newAccountTargetUrl.trim() || undefined,
+      status: "unchecked",
+    };
+
+    setNaverAccounts((prev) => [...prev, account]);
+    if (!selectedAccountId) setSelectedAccountId(account.id);
+    setNewAccountLabel("");
+    setNewAccountNaverId("");
+    setNewAccountTargetUrl("");
+  };
+
+  const handleRemoveAccount = (id: string) => {
+    setNaverAccounts((prev) => prev.filter((account) => account.id !== id));
+    if (selectedAccountId === id) setSelectedAccountId("");
+  };
+
+  const handleMarkAccountChecked = (id: string) => {
+    setNaverAccounts((prev) =>
+      prev.map((account) =>
+        account.id === id
+          ? { ...account, status: "checked", lastCheckedAt: new Date().toISOString() }
+          : account
+      )
+    );
+    setSelectedAccountId(id);
+  };
+
+  const handleOpenLoginCheck = (account: PublishingAccount) => {
+    if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) {
+      window.open(account.targetUrl || "https://nid.naver.com/nidlogin.login", "_blank");
+      return;
+    }
+
+    chrome.runtime.sendMessage({
+      type: "OPEN_NAVER_LOGIN_CHECK",
+      payload: {
+        platform: account.platform,
+        targetUrl: account.targetUrl,
+      },
+    });
   };
 
   return (
@@ -164,8 +226,8 @@ export default function SettingsTab() {
 
       {/* 네이버 연동 */}
       <section className="bg-white rounded-xl border border-gray-100 p-4">
-        <h3 className="text-[12px] font-bold text-primary mb-3">🅽 네이버 연동</h3>
-        <div>
+        <h3 className="text-[12px] font-bold text-primary mb-3">🅽 네이버 계정/채널 확인</h3>
+        <div className="mb-4">
           <label className="block text-[11px] font-semibold text-gray-500 mb-1">네이버 블로그 ID</label>
           <input
             type="text"
@@ -179,6 +241,125 @@ export default function SettingsTab() {
             순위 추적 및 조회수 수집에 사용됩니다
           </p>
         </div>
+
+        <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 mb-3">
+          <p className="text-[11px] font-bold text-primary mb-2">발행 계정 추가</p>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            {(["blog", "cafe"] as Platform[]).map((platform) => (
+              <button
+                key={platform}
+                onClick={() => setNewAccountPlatform(platform)}
+                className={`py-2 rounded-lg text-[11px] font-bold border transition ${
+                  newAccountPlatform === platform
+                    ? "bg-primary text-white border-primary"
+                    : "bg-white text-gray-500 border-gray-200"
+                }`}
+              >
+                {platform === "blog" ? "블로그" : "카페"}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            value={newAccountLabel}
+            onChange={(e) => setNewAccountLabel(e.target.value)}
+            placeholder="표시명 예: IT 블로그 본계정"
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white mb-2
+              focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+          />
+          <input
+            type="text"
+            value={newAccountNaverId}
+            onChange={(e) => setNewAccountNaverId(e.target.value)}
+            placeholder="네이버 ID 또는 운영자 메모"
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white mb-2
+              focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+          />
+          <input
+            type="url"
+            value={newAccountTargetUrl}
+            onChange={(e) => setNewAccountTargetUrl(e.target.value)}
+            placeholder={newAccountPlatform === "blog" ? "블로그 URL 예: https://blog.naver.com/..." : "카페 URL 예: https://cafe.naver.com/..."}
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white mb-2
+              focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+          />
+          <button
+            type="button"
+            onClick={handleAddAccount}
+            disabled={!newAccountLabel.trim() && !newAccountNaverId.trim()}
+            className="w-full py-2 rounded-lg bg-primary text-white text-[11px] font-bold hover:bg-accent transition disabled:opacity-50"
+          >
+            계정 목록에 추가
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {naverAccounts.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-200 bg-white p-3 text-[10px] text-gray-400 leading-relaxed">
+              아직 등록된 발행 계정이 없습니다. 글 생성 전 사용할 블로그/카페 계정을 추가하고 로그인 체크를 완료해 주세요.
+            </div>
+          ) : (
+            naverAccounts.map((account) => (
+              <div
+                key={account.id}
+                className={`rounded-lg border p-3 ${
+                  selectedAccountId === account.id ? "border-accent bg-light/40" : "border-gray-100 bg-white"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAccountId(account.id)}
+                    className="text-left"
+                  >
+                    <p className="text-[12px] font-bold text-gray-800">{account.label}</p>
+                    <p className="text-[10px] text-gray-400">
+                      {account.platform === "blog" ? "네이버 블로그" : "네이버 카페"}
+                      {account.naverId ? ` · ${account.naverId}` : ""}
+                    </p>
+                  </button>
+                  <span className={`rounded-full px-2 py-1 text-[9px] font-bold ${
+                    account.status === "checked"
+                      ? "bg-success/10 text-success"
+                      : "bg-warning/10 text-warning"
+                  }`}>
+                    {account.status === "checked" ? "로그인 체크 완료" : "체크 필요"}
+                  </span>
+                </div>
+                {account.targetUrl && (
+                  <p className="truncate text-[9px] text-gray-400 mb-2">{account.targetUrl}</p>
+                )}
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenLoginCheck(account)}
+                    className="py-1.5 rounded-lg bg-gray-100 text-[10px] font-bold text-gray-600 hover:bg-gray-200"
+                  >
+                    로그인 열기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleMarkAccountChecked(account.id)}
+                    className="py-1.5 rounded-lg bg-success text-[10px] font-bold text-white"
+                  >
+                    체크 완료
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveAccount(account.id)}
+                    className="py-1.5 rounded-lg bg-red-50 text-[10px] font-bold text-danger"
+                  >
+                    삭제
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <p className="text-[9px] text-gray-400 mt-3 leading-relaxed">
+          비밀번호는 저장하지 않습니다. 로그인 탭에서 직접 로그인한 뒤 체크 완료를 눌러 발행 계정으로 선택하세요.
+        </p>
       </section>
 
       {/* 옵시디언 연동 */}

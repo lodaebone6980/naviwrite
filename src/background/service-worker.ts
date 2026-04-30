@@ -21,6 +21,8 @@ chrome.runtime.onInstalled.addListener((details) => {
         obsidianEnabled: false,
         obsidianApiUrl: "http://localhost:27123",
         naverBlogId: "",
+        naverAccounts: [],
+        selectedAccountId: "",
         notifications: {
           rankingChange: true,
           feedbackReady: true,
@@ -86,6 +88,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case "UPDATE_CONTENT_JOB_QR":
       handleUpdateContentJobQr(message.payload, sendResponse);
+      return true;
+
+    case "OPEN_NAVER_LOGIN_CHECK":
+      handleOpenNaverLoginCheck(message.payload, sendResponse);
       return true;
   }
 });
@@ -153,6 +159,19 @@ async function handleOpenNaverQr(payload: any, sendResponse: (response: unknown)
     await chrome.storage.local.set({ pendingNaverQr });
     const tab = await chrome.tabs.create({ url: "https://qr.naver.com/" });
     sendResponse({ success: true, tabId: tab.id, pendingNaverQr });
+  } catch (err) {
+    sendResponse({ error: (err as Error).message });
+  }
+}
+
+async function handleOpenNaverLoginCheck(payload: any, sendResponse: (response: unknown) => void) {
+  try {
+    const targetUrl =
+      payload?.targetUrl ||
+      (payload?.platform === "cafe" ? "https://cafe.naver.com/" : "https://blog.naver.com/");
+    await chrome.tabs.create({ url: targetUrl });
+    await chrome.tabs.create({ url: "https://nid.naver.com/nidlogin.login" });
+    sendResponse({ success: true });
   } catch (err) {
     sendResponse({ error: (err as Error).message });
   }
