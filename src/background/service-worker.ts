@@ -79,6 +79,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(data.trackedPosts || []);
       });
       return true;
+
+    case "OPEN_NAVER_QR":
+      handleOpenNaverQr(message.payload, sendResponse);
+      return true;
+
+    case "UPDATE_CONTENT_JOB_QR":
+      handleUpdateContentJobQr(message.payload, sendResponse);
+      return true;
   }
 });
 
@@ -125,6 +133,63 @@ async function handleSaveTrackedPost(post: unknown, sendResponse: (response: unk
   }
 }
 
+// ─── 네이버 QR 생성 탭 열기 ───
+async function handleOpenNaverQr(payload: any, sendResponse: (response: unknown) => void) {
+  try {
+    if (!payload?.targetUrl) {
+      sendResponse({ error: "QR 연결 링크가 필요합니다" });
+      return;
+    }
+
+    const pendingNaverQr = {
+      jobId: payload.jobId,
+      qrName: payload.qrName,
+      targetUrl: payload.targetUrl,
+      keyword: payload.keyword,
+      campaignName: payload.campaignName,
+      openedAt: new Date().toISOString(),
+    };
+
+    await chrome.storage.local.set({ pendingNaverQr });
+    const tab = await chrome.tabs.create({ url: "https://qr.naver.com/" });
+    sendResponse({ success: true, tabId: tab.id, pendingNaverQr });
+  } catch (err) {
+    sendResponse({ error: (err as Error).message });
+  }
+}
+
+// ─── 네이버 QR 생성 결과를 서버에 저장 ───
+async function handleUpdateContentJobQr(payload: any, sendResponse: (response: unknown) => void) {
+  try {
+    if (!payload?.jobId) {
+      sendResponse({ error: "jobId가 필요합니다" });
+      return;
+    }
+
+    const serverUrl = await getServerUrlFromStorage();
+    const res = await fetch(`${serverUrl}/api/content-jobs/${payload.jobId}/qr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        naver_qr_image_url: payload.naverQrImageUrl,
+        naver_qr_manage_url: payload.naverQrManageUrl,
+        qr_status: "QR 생성 완료",
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`서버 저장 실패 (${res.status}): ${err}`);
+    }
+
+    const data = await res.json();
+    await chrome.storage.local.remove("pendingNaverQr");
+    sendResponse({ success: true, data });
+  } catch (err) {
+    sendResponse({ error: (err as Error).message });
+  }
+}
+
 // ─── 서버 URL 가져오기 헬퍼 ───
 async function getServerUrlFromStorage(): Promise<string> {
   return new Promise((resolve) => {
@@ -134,7 +199,7 @@ async function getServerUrlFromStorage(): Promise<string> {
   });
 }
 
-// ─── 알람 (자동 주기 분선 트리거) ───
+// ─── 알람 (자동 주기 분석 트리거) ───
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "check-rankings") {
     console.log("[NaviWrite] 순위 체크 알람 트리거");
@@ -147,6 +212,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       if (res.ok) {
         const result = await res.json();
         console.log("[NaviWrite] 순위 체크 완료:", result);
+
+        // 순위 변동이 있으면 알림 표시
         if (result?.alerts && result.alerts.length > 0) {
           chrome.storage.sync.get("settings", (data) => {
             const settings = data?.settings;
@@ -175,7 +242,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 chrome.runtime.onInstalled.addListener(() => {
   // 매 6시간마다 순위 체크 (Service Worker 제한 고려)
   chrome.alarms.create("check-rankings", {
-    periodInMinutes: 360, // <시간
+    periodInMinutes: 360, // 6시간
   });
 });
 

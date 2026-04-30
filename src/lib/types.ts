@@ -8,7 +8,7 @@ export type Category =
   | "IT/테크"
   | "건강/의료"
   | "재테크/금융"
-  | "유아/육품"
+  | "육아/육품"
   | "부동산"
   | "정부정책";
 
@@ -105,6 +105,9 @@ export interface WriteRequest {
   platform: Platform;
   additionalKeywords?: string[];
   tone?: string;
+  ctaUrl?: string;
+  qrTargetUrl?: string;
+  campaignName?: string;
 }
 
 export interface WriteResult {
@@ -153,6 +156,61 @@ export interface TrackedPost {
   rankings: RankingRecord[];
   views: ViewRecord[];
   feedbacks: FeedbackItem[];
+}
+
+// ─── Content Job / QR Workflow ───
+
+export type ContentJobStatus =
+  | "대기중"
+  | "본문 생성 완료"
+  | "QR 생성 필요"
+  | "QR 생성 완료"
+  | "에디터 삽입 완료"
+  | "검수 필요"
+  | "오류";
+
+export interface ContentJob {
+  id: number;
+  keyword: string;
+  category: string;
+  platform: Platform;
+  source_url?: string | null;
+  cta_url?: string | null;
+  qr_target_url?: string | null;
+  tone?: string | null;
+  campaign_name?: string | null;
+  title?: string | null;
+  body?: string | null;
+  plain_text?: string | null;
+  char_count: number;
+  kw_count: number;
+  image_count: number;
+  seo_score: number;
+  geo_score: number;
+  aeo_score: number;
+  total_score: number;
+  naver_qr_name?: string | null;
+  naver_qr_image_url?: string | null;
+  naver_qr_manage_url?: string | null;
+  qr_status: ContentJobStatus;
+  generation_status: ContentJobStatus;
+  editor_status: ContentJobStatus;
+  sheet_row_id?: string | null;
+  sheet_sync_status: string;
+  notion_url?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContentJobResponse {
+  job: ContentJob;
+  sheetSync?: {
+    ok: boolean;
+    skipped?: boolean;
+    status: string;
+    message?: string;
+  } | null;
 }
 
 export interface RankingRecord {
@@ -208,7 +266,9 @@ export type MessageType =
   | "OPEN_SIDEPANEL"
   | "COPY_TO_CLIPBOARD"
   | "GET_SETTINGS"
-  | "SAVE_SETTINGS";
+  | "SAVE_SETTINGS"
+  | "OPEN_NAVER_QR"
+  | "UPDATE_CONTENT_JOB_QR";
 
 export interface ChromeMessage {
   type: MessageType;

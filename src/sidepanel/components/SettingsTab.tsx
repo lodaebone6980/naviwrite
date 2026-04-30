@@ -118,7 +118,7 @@ export default function SettingsTab() {
           ) : connectionStatus === "fail" ? (
             "연결 실패 - URL을 확인해주세요"
           ) : (
-            "🕗 서버 연결 테스트"
+            "🔗 서버 연결 테스트"
           )}
         </button>
       </section>
