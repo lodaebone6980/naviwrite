@@ -295,6 +295,7 @@ export interface UserSettings {
   apiKey: string;
   aiProvider: "claude" | "gpt";
   serverUrl?: string;
+  runnerUrl?: string;
   obsidianEnabled: boolean;
   obsidianApiUrl?: string;
   naverBlogId?: string;

@@ -5,6 +5,7 @@ export default function SettingsTab() {
   const [apiKey, setApiKey] = useState("");
   const [aiProvider, setAiProvider] = useState<"claude" | "gpt">("claude");
   const [serverUrl, setServerUrl] = useState("https://web-production-184ff.up.railway.app");
+  const [runnerUrl, setRunnerUrl] = useState("http://127.0.0.1:39271");
   const [obsidianEnabled, setObsidianEnabled] = useState(false);
   const [obsidianUrl, setObsidianUrl] = useState("http://localhost:27123");
   const [blogId, setBlogId] = useState("");
@@ -21,6 +22,7 @@ export default function SettingsTab() {
   });
   const [saved, setSaved] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
+  const [runnerStatus, setRunnerStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
 
   // 마운트 시 저장된 설정 불러오기
   useEffect(() => {
@@ -31,6 +33,7 @@ export default function SettingsTab() {
           if (s.apiKey) setApiKey(s.apiKey);
           if (s.aiProvider) setAiProvider(s.aiProvider);
           if (s.serverUrl) setServerUrl(s.serverUrl);
+          if (s.runnerUrl) setRunnerUrl(s.runnerUrl);
           if (s.obsidianEnabled !== undefined) setObsidianEnabled(s.obsidianEnabled);
           if (s.obsidianApiUrl) setObsidianUrl(s.obsidianApiUrl);
           if (s.naverBlogId) setBlogId(s.naverBlogId);
@@ -47,6 +50,7 @@ export default function SettingsTab() {
       apiKey,
       aiProvider,
       serverUrl,
+      runnerUrl,
       obsidianEnabled,
       obsidianApiUrl: obsidianUrl,
       naverBlogId: blogId,
@@ -83,6 +87,20 @@ export default function SettingsTab() {
       setConnectionStatus("fail");
     }
     setTimeout(() => setConnectionStatus("idle"), 3000);
+  };
+
+  const handleTestRunner = async () => {
+    setRunnerStatus("testing");
+    try {
+      const res = await fetch(`${runnerUrl.replace(/\/$/, "")}/health`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      setRunnerStatus(res.ok ? "ok" : "fail");
+    } catch {
+      setRunnerStatus("fail");
+    }
+    setTimeout(() => setRunnerStatus("idle"), 3000);
   };
 
   const handleAddAccount = () => {
@@ -182,6 +200,42 @@ export default function SettingsTab() {
           ) : (
             "🔗 서버 연결 테스트"
           )}
+        </button>
+      </section>
+
+      {/* Local Runner */}
+      <section className="bg-white rounded-xl border border-gray-100 p-4">
+        <h3 className="text-[12px] font-bold text-primary mb-3">🖥️ Local Runner</h3>
+
+        <div className="mb-3">
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1">Runner URL</label>
+          <input
+            type="url"
+            value={runnerUrl}
+            onChange={(e) => setRunnerUrl(e.target.value)}
+            placeholder="http://127.0.0.1:39271"
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white
+              focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+          />
+          <p className="text-[9px] text-gray-400 mt-1">
+            계정별 브라우저 프로필, 로그인 세션, 로컬 암호화 자격증명을 PC 안에서만 관리합니다
+          </p>
+        </div>
+
+        <button
+          onClick={handleTestRunner}
+          disabled={runnerStatus === "testing"}
+          className={`w-full py-2 rounded-lg text-[11px] font-bold transition ${
+            runnerStatus === "ok"
+              ? "bg-success text-white"
+              : runnerStatus === "fail"
+              ? "bg-danger text-white"
+              : runnerStatus === "testing"
+              ? "bg-gray-300 text-gray-500 cursor-wait"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          {runnerStatus === "testing" ? "Runner 확인 중..." : runnerStatus === "ok" ? "Runner 연결 성공!" : runnerStatus === "fail" ? "Runner 연결 실패" : "Runner 연결 테스트"}
         </button>
       </section>
 

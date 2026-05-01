@@ -18,6 +18,7 @@ chrome.runtime.onInstalled.addListener((details) => {
         apiKey: "",
         aiProvider: "claude",
         serverUrl: DEFAULT_SERVER_URL,
+        runnerUrl: "http://127.0.0.1:39271",
         obsidianEnabled: false,
         obsidianApiUrl: "http://localhost:27123",
         naverBlogId: "",
